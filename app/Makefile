@@ -1,7 +1,7 @@
 #*******************************************************************************
-#   Ledger App
-#   (c) 2018-2020 Zondax GmbH
-#   (c) 2017 Ledger
+#  Ledger App
+#  (c) 2018 - 2025 Zondax AG
+#  (c) 2017 Ledger
 #
 #  Licensed under the Apache License, Version 2.0 (the "License");
 #  you may not use this file except in compliance with the License.
@@ -20,172 +20,139 @@ ifeq ($(BOLOS_SDK),)
 $(error BOLOS_SDK is not set)
 endif
 
-MY_DIR := $(dir $(lastword $(MAKEFILE_LIST)))
-
+########################################
+#        Mandatory configuration       #
+########################################
+# Upload targets to configure the devices 
 include $(BOLOS_SDK)/Makefile.defines
 
-# Main app configuration
+# Application name
 APPNAME = "THORChain"
-APPVERSION_M=2
-APPVERSION_N=2
-APPVERSION_P=0
+
+# Application version
+include $(CURDIR)/Makefile.version
+APPVERSION = "$(APPVERSION_M).$(APPVERSION_N).$(APPVERSION_P)"
+
+DEFINES += CBOR_NO_FLOATING_POINT
+
+# Application source files
+APP_SOURCE_PATH += src
+CFLAGS += -I$(CURDIR)/../deps/tinycbor/src
+APP_SOURCE_PATH += $(CURDIR)/../deps/tinycbor-ledger
+APP_SOURCE_PATH += $(CURDIR)/../deps/jsmn/src
+
+# Application icons following guidelines:
+# https://developers.ledger.com/docs/embedded-app/design-requirements/#device-icon
+ICON_NANOX = nanox_icon.gif
+ICON_NANOSP = nanosp_icon.gif
+ICON_STAX = stax_icon.gif
+ICON_FLEX = flex_icon.gif
+ICON_APEX_P = apex_p_icon.png
+
+# Application allowed derivation curves.
+# Possibles curves are: secp256k1, secp256r1, ed25519 and bls12381g1
+# If your app needs it, you can specify multiple curves by using:
+# `CURVE_APP_LOAD_PARAMS = <curve1> <curve2>`
+CURVE_APP_LOAD_PARAMS = secp256k1
+
+# Application allowed derivation paths.
+# You should request a specific path for your app.
+# This serve as an isolation mechanism.
+# Most application will have to request a path according to the BIP-0044
+# and SLIP-0044 standards.
+# If your app needs it, you can specify multiple path by using:
+# `PATH_APP_LOAD_PARAMS = "44'/1'" "45'/1'"`
 
 APPPATH = "44'/931'"
-APP_LOAD_PARAMS = --delete $(COMMON_LOAD_PARAMS) --path $(APPPATH)
+$(info PATHS LIST = $(APPPATH))
+PATH_APP_LOAD_PARAMS = $(APPPATH)
 
-# Pending review parameters
-APP_LOAD_PARAMS += --tlvraw 9F:01
-DEFINES += HAVE_PENDING_REVIEW_SCREEN
-
-ifeq ($(TARGET_NAME),TARGET_NANOS)
-APP_LOAD_PARAMS += --appFlags 0x000
-APP_STACK_SIZE:=1212
-ICONNAME:=$(CURDIR)/nanos_icon.gif
+# Setting to allow building variant applications
+# - <VARIANT_PARAM> is the name of the parameter which should be set
+#   to specify the variant that should be build.
+# - <VARIANT_VALUES> a list of variant that can be build using this app code.
+#   * It must at least contains one value.
+#   * Values can be the app ticker or anything else but should be unique.
+ifeq ($(COIN),)
+    COIN=RUNE
+else
+	ifneq ($(COIN),RUNE)
+		$(error "Unsupported COIN value: $(COIN)")
+	endif
 endif
+$(info COIN  = [$(COIN)])
+VARIANT_PARAM=COIN
+VARIANT_VALUES=$(COIN)
+
+INCLUDES_PATH += $(CURDIR)/src/common
+
+########################################
+# Application communication interfaces #
+########################################
+ENABLE_BLUETOOTH = 1
+#ENABLE_NFC = 1
+
+########################################
+#         NBGL custom features         #
+########################################
+ENABLE_NBGL_QRCODE = 1
+#ENABLE_NBGL_KEYBOARD = 1
+#ENABLE_NBGL_KEYPAD = 1
+
+########################################
+#          Features disablers          #
+########################################
+# These advanced settings allow to disable some feature that are by
+# default enabled in the SDK `Makefile.standard_app`.
+#DISABLE_STANDARD_APP_FILES = 1
+#DISABLE_DEFAULT_IO_SEPROXY_BUFFER_SIZE = 1 # To allow custom size declaration
+#DISABLE_STANDARD_APP_DEFINES = 1 # Will set all the following disablers
+#DISABLE_STANDARD_SNPRINTF = 1
+#DISABLE_STANDARD_USB = 1
+#DISABLE_STANDARD_WEBUSB = 1
+#DISABLE_DEBUG_LEDGER_ASSERT = 1
+#DISABLE_DEBUG_THROW = 1
+
+########################################
+#        Other configurations          #
+########################################
+# Set the default value for PRODUCTION_BUILD to 0 if not already defined
+PRODUCTION_BUILD ?= 1
+# Display whether this is a production build or for internal use
+ifeq ($(PRODUCTION_BUILD), 1)
+    $(info ************ PRODUCTION_BUILD  = [PRODUCTION BUILD])
+else
+    $(info ************ PRODUCTION_BUILD  = [INTERNAL USE])
+endif
+
+# Add the PRODUCTION_BUILD definition to the compiler flags
+DEFINES += PRODUCTION_BUILD=$(PRODUCTION_BUILD)
+
+########################################
+
+# Configure devices and permissions
+include $(CURDIR)/../deps/ledger-zxlib/makefiles/Makefile.devices
 
 ifeq ($(TARGET_NAME),TARGET_NANOX)
-APP_LOAD_PARAMS += --appFlags 0x200
-ICONNAME:=$(CURDIR)/nanox_icon.gif
+$(info SETTING STACK SIZE FOR NANOX)
+# the previous value (5000) was too high and caused the app to crash, i reduced it until it worked
+	APP_STACK_MIN_SIZE := 1730
 endif
 
-ifeq ($(TARGET_NAME),TARGET_NANOS2)
-APP_LOAD_PARAMS += --appFlags 0x000
-ICONNAME:=$(CURDIR)/nanox_icon.gif
-OUTPUT_ELF ?= $(CURDIR)/output/app_s2.elf
-OUTPUT_INSTALLER:= $(CURDIR)/pkg/installer_s2.sh
-endif
+# Create installer script
+include $(CURDIR)/../deps/ledger-zxlib/makefiles/Makefile.installer_script
+# Enable logging
+include $(CURDIR)/../deps/ledger-zxlib/makefiles/Makefile.app_testing
+# Call standard app flags
+include $(CURDIR)/../deps/ledger-zxlib/makefiles/Makefile.platform
 
-ifndef ICONNAME
+$(info TARGET_NAME  = [$(TARGET_NAME)])
+$(info ICONNAME  = [$(ICONNAME)])
+
+ifeq ($(ICONNAME),)
 $(error ICONNAME is not set)
 endif
 
-all: default
-	@echo "#!/usr/bin/env bash" > $(CURDIR)/pkg/zxtool.sh
-	@echo "APPNAME=\"${APPNAME}\"" >> $(CURDIR)/pkg/zxtool.sh
-	@echo "APPVERSION=\"${APPVERSION}\"" >> $(CURDIR)/pkg/zxtool.sh
-	@echo "APPPATH=\""${APPPATH}"\"" >> $(CURDIR)/pkg/zxtool.sh
-	@echo "LOAD_PARAMS=\"${COMMON_LOAD_PARAMS}\"" >> $(CURDIR)/pkg/zxtool.sh
-	@echo "DELETE_PARAMS=\"${COMMON_DELETE_PARAMS}\"" >> $(CURDIR)/pkg/zxtool.sh
-	@echo "APPHEX=\"" >> $(CURDIR)/pkg/zxtool.sh
-	@cat $(CURDIR)/bin/app.hex >> $(CURDIR)/pkg/zxtool.sh
-	@echo "\"" >> $(CURDIR)/pkg/zxtool.sh
-	@cat $(CURDIR)/../deps/ledger-zxlib/scripts/template.sh >> $(CURDIR)/pkg/zxtool.sh
-	@chmod +x $(CURDIR)/pkg/zxtool.sh
-
-############
-# Platform
-
-DEFINES       += UNUSED\(x\)=\(void\)x
-DEFINES       += PRINTF\(...\)=
-
-APPVERSION=$(APPVERSION_M).$(APPVERSION_N).$(APPVERSION_P)
-DEFINES       += APPVERSION=\"$(APPVERSION)\"
-
-DEFINES       += OS_IO_SEPROXYHAL
-DEFINES       += HAVE_BAGL HAVE_SPRINTF
-DEFINES       += HAVE_IO_USB HAVE_L4_USBLIB IO_USB_MAX_ENDPOINTS=7 IO_HID_EP_LENGTH=64 HAVE_USB_APDU
-
-DEFINES       += LEDGER_MAJOR_VERSION=$(APPVERSION_M) LEDGER_MINOR_VERSION=$(APPVERSION_N) LEDGER_PATCH_VERSION=$(APPVERSION_P)
-
-DEFINES       += USB_SEGMENT_SIZE=64
-DEFINES       += HAVE_BOLOS_APP_STACK_CANARY
-DEFINES       += NDEBUG
-
-DEFINES       += HAVE_WEBUSB WEBUSB_URL_SIZE_B=0 WEBUSB_URL=""
-DEFINES		  += HAVE_HASH HAVE_BLAKE2 HAVE_SHA256 HAVE_SHA512
-
-ifeq ($(TARGET_NAME),TARGET_NANOS)
-# Assume Nano S
-DEFINES       += IO_SEPROXYHAL_BUFFER_SIZE_B=128
-DEFINES       += COMPLIANCE_UX_160 HAVE_UX_LEGACY HAVE_UX_FLOW #??
-else
-# Assume Nano X/S+
-DEFINES       += IO_SEPROXYHAL_BUFFER_SIZE_B=300
-
-DEFINES       += HAVE_GLO096
-DEFINES       += HAVE_BAGL BAGL_WIDTH=128 BAGL_HEIGHT=64
-DEFINES       += HAVE_BAGL_ELLIPSIS # long label truncation feature
-DEFINES       += HAVE_BAGL_FONT_OPEN_SANS_REGULAR_11PX
-DEFINES       += HAVE_BAGL_FONT_OPEN_SANS_EXTRABOLD_11PX
-DEFINES       += HAVE_BAGL_FONT_OPEN_SANS_LIGHT_16PX
-
-DEFINES       += HAVE_UX_FLOW
-endif
-
-ifeq ($(TARGET_NAME),TARGET_NANOX)
-# X specific
-DEFINES       += HAVE_BLE
-DEFINES       += HAVE_BLE_APDU BLE_COMMAND_TIMEOUT_MS=2000
-
-SDK_SOURCE_PATH  += lib_blewbxx lib_blewbxx_impl
-endif
-
-#Feature temporarily disabled
-DEFINES   += LEDGER_SPECIFIC
-
-# Compiler, assembler, and linker
-
-ifneq ($(BOLOS_ENV),)
-$(info BOLOS_ENV is $(BOLOS_ENV))
-CLANGPATH := $(BOLOS_ENV)/clang-arm-fropi/bin/
-GCCPATH := $(BOLOS_ENV)/gcc-arm-none-eabi-10-2020-q4-major/bin/
-else
-$(info BOLOS_ENV is not set: falling back to CLANGPATH and GCCPATH)
-endif
-
-ifeq ($(CLANGPATH),)
-$(info CLANGPATH is not set: clang will be used from PATH)
-endif
-
-ifeq ($(GCCPATH),)
-$(info GCCPATH is not set: arm-none-eabi-* will be used from PATH)
-endif
-
-#########################
-
-CC := $(CLANGPATH)clang
-CFLAGS += -O3 -Os -Wno-unknown-pragmas -Wno-unused-parameter
-
-AS := $(GCCPATH)arm-none-eabi-gcc
-AFLAGS +=
-
-LD       := $(GCCPATH)arm-none-eabi-gcc
-LDFLAGS  += -O3 -Os
-LDLIBS   += -lm -lgcc -lc
-
-##########################
-GLYPH_SRC_DIR = glyphs
-INCLUDES_PATH += $(MY_DIR)/glyphs
-include $(BOLOS_SDK)/Makefile.glyphs
-
-APP_SOURCE_PATH += $(MY_DIR)/src
-APP_SOURCE_PATH += $(MY_DIR)/../deps/ledger-zxlib/include
-APP_SOURCE_PATH += $(MY_DIR)/../deps/ledger-zxlib/src
-APP_SOURCE_PATH += $(MY_DIR)/../deps/ledger-zxlib/app/common
-APP_SOURCE_PATH += $(MY_DIR)/../deps/jsmn/src
-
-SDK_SOURCE_PATH += lib_stusb lib_stusb_impl
-
-SDK_SOURCE_PATH  += lib_ux
-
-# Import generic rules from the SDK
-include $(BOLOS_SDK)/Makefile.rules
-
-#add dependency on custom makefile filename
-dep/%.d: %.c Makefile
-
-rust:
-	# Do nothing
-
-# load, delete and listvariants are provided to comply with Ledger requirements
-load:
-	python3 -m ledgerblue.loadApp $(APP_LOAD_PARAMS)
-
-delete:
-	python3 -m ledgerblue.deleteApp $(COMMON_DELETE_PARAMS)
-
-listvariants:
-	@echo VARIANTS COIN RUNE
-
+.PHONY: version
 version:
 	@echo "v$(APPVERSION)" > app.version
